@@ -1,57 +1,61 @@
-version: '3'
-
+version: '3.8'
 services:
-  elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:7.12.0
-    environment:
-      - discovery.type=single-node
-    ports:
-      - "9200:9200"
-      - "9300:9300"
-    volumes:
-      - ./elasticsearch/config/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml
-      - esdata:/usr/share/elasticsearch/data
-    networks:
-      - elk-network
+# Elasticsearch service  
+    es-node-01:
+        container_name: es-node-01
+        ports:
+            - '9200:9200'
+            - '9300:9300'
+        environment:
+            - discovery.type=single-node
+        image: 'docker.elastic.co/elasticsearch/elasticsearch:7.17.0'
+        networks:
+            - elastic
+# Kibana service              
+    kibana-01:
+        container_name: kibana-01
+        ports:
+            - '5601:5601'
+        environment:
+            - 'ELASTICSEARCH_HOSTS=http://es-node-01:9200'   
+        image: 'docker.elastic.co/kibana/kibana:7.17.0'   
+        healthcheck:
+            test: ["CMD", "curl", "-f", "kibana-01:5601"]
+            interval: 50s
+            timeout: 50s
+            retries: 5
+        depends_on:
+            - es-node-01
+        networks:
+            - elastic 
+# Logstash service 
+    logstash:
+        container_name: logstash-01
+        volumes:
+            - /Users/theara/project/docker compose/es kb/logstash.conf:/usr/share/logstash/pipeline/logstash.conf:ro 
+            - /Users/theara/project/docker compose/es kb/logstash.yaml:/usr/share/logstash/config/logstash.yml:ro 
+        image: 'docker.elastic.co/logstash/logstash:7.16.3'
+        depends_on:   
+             kibana-01:
+               condition: service_healthy  
+        networks:
+            - elastic 
 
-  apm-server:
-    image: docker.elastic.co/apm/apm-server:7.12.0
-    environment:
-      - ELASTIC_APM_SERVER_URL=http://elasticsearch:9200
-      - ELASTIC_APM_SECRET_TOKEN=apm-secret-token
-    ports:
-      - "8200:8200"
-    networks:
-      - elk-network
-
-  logstash:
-    image: docker.elastic.co/logstash/logstash:7.12.0
-    environment:
-      - LS_JAVA_OPTS=-Xmx256m
-      - XPACK_MONITORING_ENABLED=true
-    volumes:
-      - ./logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml
-      - ./logstash/pipeline:/usr/share/logstash/pipeline
-    networks:
-      - elk-network
-      - apm-network
-    depends_on:
-      - elasticsearch
-
-  kibana:
-    image: docker.elastic.co/kibana/kibana:7.12.0
-    ports:
-      - "5601:5601"
-    networks:
-      - elk-network
-    depends_on:
-      - elasticsearch
-
-volumes:
-  esdata:
-
+# Filebeat service 
+    filebeat:
+        user: root
+        container_name: filebeat-01
+        command: --strict.perms=false
+        volumes:
+            - /Users/theara/project/docker compose/es kb/filebeat.docker.yaml:/usr/share/filebeat/filebeat.yml:ro
+            - /var/lib/docker/containers:/var/lib/docker/containers:ro
+            - /var/run/docker.sock:/var/run/docker.sock:ro
+        image: 'docker.elastic.co/beats/filebeat:7.16.3' 
+        depends_on:   
+             kibana-01:
+               condition: service_healthy
+        networks:
+            - elastic              
 networks:
-  elk-network:
-    driver: bridge
-  apm-network:
-    driver: bridge
+  elastic:
+    name: elastic
